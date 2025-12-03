@@ -2,8 +2,7 @@
 
 **QuickResume** is a modern, lightning-fast resume builder built with React and Tailwind CSS. Create professional, polished resumes in minutes with real-time preview, AI-powered enhancements, and a wide variety of stunning themes.
 
-![QuickResume Banner](https://via.placeholder.com/1200x600?text=QuickResume+Preview)
-*(Replace with actual screenshot)*
+<img width="1918" height="932" alt="image" src="https://github.com/user-attachments/assets/b4fb4363-3861-46a8-85c2-31d3ddc09d3f" />
 
 ## ✨ Features
 
