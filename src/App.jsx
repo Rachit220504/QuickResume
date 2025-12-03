@@ -70,11 +70,7 @@ const MOCK_PERSONA = {
   theme: THEMES.PROFESSIONAL
 };
 
-const ENHANCED_BIOS = [
-  "A visionary Senior Product Designer dedicated to crafting seamless digital experiences. I leverage a deep understanding of human-computer interaction to solve complex problems and deliver elegant, user-centric solutions that drive business growth.",
-  "Results-oriented Product Designer with a proven track record of transforming abstract concepts into polished, market-ready products. Expert in design systems and agile methodologies, I thrive in fast-paced environments where innovation is key.",
-  "Creative and analytical Senior Designer specializing in building scalable design systems and intuitive interfaces. I combine aesthetic excellence with functional precision to create products that not only look great but work perfectly."
-];
+
 
 
 
@@ -116,15 +112,21 @@ const SectionHeader = ({ title, icon: Icon }) => (
   </div>
 );
 
+const formatUrl = (url) => {
+  if (!url) return '';
+  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  return `https://${url}`;
+};
+
 // --- Main Application ---
 
 function App() {
   // State
   const [activeTab, setActiveTab] = useState('profile');
-  const [isEnhancing, setIsEnhancing] = useState(false);
+
   const [data, setData] = useState(() => {
     const saved = localStorage.getItem('portfolio_data');
-    return saved ? JSON.parse(saved) : {
+    const initialState = {
       fullName: "",
       title: "",
       bio: "",
@@ -133,11 +135,13 @@ function App() {
       location: "",
       linkedin: "",
       github: "",
+      customLinks: [],
       skills: [],
       experience: [],
       projects: [],
       theme: THEMES.MINIMALIST
     };
+    return saved ? { ...initialState, ...JSON.parse(saved) } : initialState;
   });
 
   const previewRef = useRef(null);
@@ -148,94 +152,125 @@ function App() {
   }, [data]);
 
   // Actions
-  const handleAIEnhance = () => {
-    setIsEnhancing(true);
-    
-    // Simulate AI processing time
-    setTimeout(() => {
-      setData(prev => {
-        const newData = { ...prev };
-        
-        // Enhance Bio
-        if (newData.bio && !newData.bio.includes("innovative technology solutions")) {
-          newData.bio = newData.bio.trim() + " Passionate about driving business growth through innovative technology solutions and user-centric design.";
-        } else if (!newData.bio) {
-          newData.bio = "A dedicated professional with a focus on delivering high-quality results and continuous improvement.";
-        }
 
-        // Enhance Experience
-        newData.experience = newData.experience.map(exp => ({
-          ...exp,
-          description: exp.description 
-            ? (exp.description.includes("efficiency") ? exp.description : exp.description.trim() + " Successfully optimized workflows to improve team efficiency by 20%.")
-            : "Led key initiatives and collaborated with cross-functional teams to deliver project goals on time."
-        }));
-
-        // Enhance Projects
-        newData.projects = newData.projects.map(proj => ({
-          ...proj,
-          description: proj.description
-            ? (proj.description.includes("scalable") ? proj.description : proj.description.trim() + " Built using modern best practices and scalable architecture to ensure long-term maintainability.")
-            : "Designed and developed a comprehensive solution addressing core user needs."
-        }));
-
-        return newData;
-      });
-      setIsEnhancing(false);
-      alert("Content enhanced with professional phrasing!");
-    }, 1500);
-  };
-
-  const handleEnhanceBio = () => {
-    setIsEnhancing(true);
-    setTimeout(() => {
-      const randomBio = ENHANCED_BIOS[Math.floor(Math.random() * ENHANCED_BIOS.length)];
-      setData(prev => ({ ...prev, bio: randomBio }));
-      setIsEnhancing(false);
-    }, 1500);
-  };
 
 
 
   const handleDownloadPDF = async () => {
     if (!previewRef.current) return;
     
+    // Scroll to top to prevent capture issues
+    window.scrollTo(0, 0);
+    
+    // Save original styles
+    const originalTransform = previewRef.current.style.transform;
+    const originalTransition = previewRef.current.style.transition;
+    const originalWidth = previewRef.current.style.width;
+
+    // Create style overrides for PDF capture (fix gradient text, skills layout, etc.)
+    const style = document.createElement('style');
+    style.innerHTML = `
+      .pdf-capture .bg-clip-text {
+        background: none !important;
+        -webkit-background-clip: border-box !important;
+        background-clip: border-box !important;
+        color: #a855f7 !important;
+        -webkit-text-fill-color: #a855f7 !important;
+      }
+      
+      /* Fix Creative Theme Skills */
+      .pdf-capture .creative-skills {
+        display: block !important;
+      }
+      .pdf-capture .creative-skills > span {
+        display: inline-block !important;
+        margin-right: 0.5rem !important;
+        margin-bottom: 0.5rem !important;
+        white-space: nowrap !important;
+        vertical-align: middle !important;
+      }
+    `;
+    document.head.appendChild(style);
+    previewRef.current.classList.add('pdf-capture');
+
     try {
+      // Force consistent width for better layout
+      previewRef.current.style.transform = 'scale(1)';
+      previewRef.current.style.transition = 'none';
+      previewRef.current.style.width = '1024px';
+
+      // Wait for layout to settle
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Get preview dimensions
+      const previewRect = previewRef.current.getBoundingClientRect();
+      
+      // Calculate link positions
+      const links = [];
+      const linkElements = previewRef.current.querySelectorAll('a');
+      
+      linkElements.forEach(link => {
+        const rect = link.getBoundingClientRect();
+        links.push({
+          x: rect.left - previewRect.left,
+          y: rect.top - previewRect.top,
+          w: rect.width,
+          h: rect.height,
+          url: link.href
+        });
+      });
+
+      // Capture preview
       const canvas = await html2canvas(previewRef.current, {
-        scale: 2, // Higher quality
+        scale: 2,
         useCORS: true,
         logging: false,
-        windowWidth: 1200 // Force desktop width for consistency
+        scrollY: 0,
+        scrollX: 0,
+        allowTaint: true
       });
       
       const imgData = canvas.toDataURL('image/png');
+      
+      // Create A4 PDF
       const pdf = new jsPDF({
         orientation: 'portrait',
         unit: 'mm',
         format: 'a4'
       });
-      
-      const imgWidth = 210; // A4 width in mm
-      const pageHeight = 297; // A4 height in mm
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
-      
-      let heightLeft = imgHeight;
-      let position = 0;
-      
-      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-      heightLeft -= pageHeight;
-      
-      while (heightLeft >= 0) {
-        position = heightLeft - imgHeight;
-        pdf.addPage();
-        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-        heightLeft -= pageHeight;
-      }
-      
+
+      const A4_WIDTH = 210;
+      const A4_HEIGHT = 297;
+
+      // Add image scaled to fill A4 page
+      pdf.addImage(imgData, 'PNG', 0, 0, A4_WIDTH, A4_HEIGHT);
+
+      // Add clickable links scaled to A4
+      const scaleX = A4_WIDTH / previewRect.width;
+      const scaleY = A4_HEIGHT / previewRect.height;
+      links.forEach(link => {
+        pdf.link(
+          link.x * scaleX,
+          link.y * scaleY,
+          link.w * scaleX,
+          link.h * scaleY,
+          { url: link.url }
+        );
+      });
+
       pdf.save(`${data.fullName.replace(/\s+/g, '_')}_Portfolio.pdf`);
     } catch (err) {
       console.error("PDF generation failed", err);
       alert("Failed to generate PDF. Please try again.");
+    } finally {
+      // Restore original styles and cleanup
+      previewRef.current.style.transform = originalTransform;
+      previewRef.current.style.transition = originalTransition;
+      previewRef.current.style.width = originalWidth;
+      previewRef.current.classList.remove('pdf-capture');
+      if (style.parentNode) {
+        document.head.removeChild(style);
+      }
     }
   };
 
@@ -305,14 +340,18 @@ function App() {
               <h1 className="text-5xl font-bold mb-4 bg-gradient-to-r from-purple-400 to-pink-500 text-transparent bg-clip-text">{data.fullName}</h1>
               <p className="text-xl text-gray-400 mb-6">{data.title}</p>
               <div className="flex flex-wrap gap-4 text-sm text-gray-400">
-                {data.email && <span className="flex items-center"><Mail className="w-4 h-4 mr-2" />{data.email}</span>}
+                {data.email && <a href={`mailto:${data.email}`} className="flex items-center hover:text-purple-400 transition-colors"><Mail className="w-4 h-4 mr-2" />{data.email}</a>}
                 {data.location && <span className="flex items-center"><MapPin className="w-4 h-4 mr-2" />{data.location}</span>}
-                {data.linkedin && <span className="flex items-center"><Linkedin className="w-4 h-4 mr-2" />{data.linkedin}</span>}
+                {data.linkedin && <a href={formatUrl(data.linkedin)} target="_blank" rel="noreferrer" className="flex items-center hover:text-purple-400 transition-colors"><Linkedin className="w-4 h-4 mr-2" />LinkedIn</a>}
+                {data.github && <a href={formatUrl(data.github)} target="_blank" rel="noreferrer" className="flex items-center hover:text-purple-400 transition-colors"><Github className="w-4 h-4 mr-2" />GitHub</a>}
+                {(data.customLinks || []).map(link => (
+                  <a key={link.id} href={formatUrl(link.url)} target="_blank" rel="noreferrer" className="flex items-center hover:text-purple-400 transition-colors"><Globe className="w-4 h-4 mr-2" />{link.label}</a>
+                ))}
               </div>
             </header>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-12">
-              <div className="md:col-span-2 space-y-12">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-12 creative-grid">
+              <div className="md:col-span-2 space-y-12 creative-main">
                 <section>
                   <h3 className="text-2xl font-bold mb-4 text-purple-400">About Me</h3>
                   <p className="text-gray-300 leading-relaxed">{data.bio}</p>
@@ -350,10 +389,10 @@ function App() {
                 </section>
               </div>
 
-              <div className="space-y-12">
+              <div className="space-y-12 creative-sidebar">
                 <section>
                   <h3 className="text-xl font-bold mb-4 text-purple-400">Skills</h3>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap gap-2 creative-skills">
                     {data.skills.map((skill, i) => (
                       <span key={i} className="px-3 py-1 bg-purple-900/30 border border-purple-500/30 text-purple-300 rounded-full text-sm">
                         {skill}
@@ -377,9 +416,14 @@ function App() {
                     <p className="text-xl text-slate-300">{data.title}</p>
                   </div>
                   <div className="text-right text-sm text-slate-300 space-y-1">
-                    {data.email && <div className="flex items-center justify-end gap-2"><Mail className="w-4 h-4" />{data.email}</div>}
-                    {data.phone && <div className="flex items-center justify-end gap-2"><Phone className="w-4 h-4" />{data.phone}</div>}
-                    {data.location && <div className="flex items-center justify-end gap-2"><MapPin className="w-4 h-4" />{data.location}</div>}
+                    {data.email && <a href={`mailto:${data.email}`} className="flex items-center justify-end gap-2 hover:text-white transition-colors"><Mail className="w-4 h-4" />{data.email}</a>}
+                    {data.phone && <span className="flex items-center justify-end gap-2"><Phone className="w-4 h-4" />{data.phone}</span>}
+                    {data.location && <span className="flex items-center justify-end gap-2"><MapPin className="w-4 h-4" />{data.location}</span>}
+                    {data.linkedin && <a href={formatUrl(data.linkedin)} target="_blank" rel="noreferrer" className="flex items-center justify-end gap-2 hover:text-white transition-colors"><Linkedin className="w-4 h-4" />LinkedIn</a>}
+                    {data.github && <a href={formatUrl(data.github)} target="_blank" rel="noreferrer" className="flex items-center justify-end gap-2 hover:text-white transition-colors"><Github className="w-4 h-4" />GitHub</a>}
+                    {(data.customLinks || []).map(link => (
+                      <a key={link.id} href={formatUrl(link.url)} target="_blank" rel="noreferrer" className="flex items-center justify-end gap-2 hover:text-white transition-colors"><Globe className="w-4 h-4" />{link.label}</a>
+                    ))}
                   </div>
                 </div>
               </div>
@@ -440,8 +484,8 @@ function App() {
                   <section>
                     <h3 className="text-lg font-bold uppercase tracking-wider text-slate-500 mb-4 border-b pb-2">Connect</h3>
                     <div className="space-y-2 text-sm text-slate-600">
-                      {data.linkedin && <div className="flex items-center gap-2"><Linkedin className="w-4 h-4" /> {data.linkedin}</div>}
-                      {data.github && <div className="flex items-center gap-2"><Github className="w-4 h-4" /> {data.github}</div>}
+                      {data.linkedin && <a href={formatUrl(data.linkedin)} target="_blank" rel="noreferrer" className="flex items-center gap-2 hover:text-slate-900 transition-colors"><Linkedin className="w-4 h-4" /> LinkedIn</a>}
+                      {data.github && <a href={formatUrl(data.github)} target="_blank" rel="noreferrer" className="flex items-center gap-2 hover:text-slate-900 transition-colors"><Github className="w-4 h-4" /> GitHub</a>}
                     </div>
                   </section>
                 </div>
@@ -462,10 +506,10 @@ function App() {
                 <p className="text-xl text-slate-400 mb-6 font-light">{data.title}</p>
                 
                 <div className="flex flex-wrap gap-4 text-sm text-slate-400">
-                  {data.email && <div className="flex items-center hover:text-teal-300 transition-colors"><Mail className="w-4 h-4 mr-2" />{data.email}</div>}
+                  {data.email && <a href={`mailto:${data.email}`} className="flex items-center hover:text-teal-300 transition-colors"><Mail className="w-4 h-4 mr-2" />{data.email}</a>}
                   {data.location && <div className="flex items-center hover:text-teal-300 transition-colors"><MapPin className="w-4 h-4 mr-2" />{data.location}</div>}
-                  {data.linkedin && <div className="flex items-center hover:text-teal-300 transition-colors"><Linkedin className="w-4 h-4 mr-2" />{data.linkedin}</div>}
-                  {data.github && <div className="flex items-center hover:text-teal-300 transition-colors"><Github className="w-4 h-4 mr-2" />{data.github}</div>}
+                  {data.linkedin && <a href={formatUrl(data.linkedin)} target="_blank" rel="noreferrer" className="flex items-center hover:text-teal-300 transition-colors"><Linkedin className="w-4 h-4 mr-2" />LinkedIn</a>}
+                  {data.github && <a href={formatUrl(data.github)} target="_blank" rel="noreferrer" className="flex items-center hover:text-teal-300 transition-colors"><Github className="w-4 h-4 mr-2" />GitHub</a>}
                 </div>
               </header>
 
@@ -556,10 +600,11 @@ function App() {
                   <section>
                     <h3 className="text-white font-serif text-lg border-b border-stone-600 pb-2 mb-4">Contact</h3>
                     <div className="space-y-3 text-sm">
-                      {data.email && <div className="flex items-center"><Mail className="w-4 h-4 mr-3 opacity-70" />{data.email}</div>}
+                      {data.email && <a href={`mailto:${data.email}`} className="flex items-center hover:text-white transition-colors"><Mail className="w-4 h-4 mr-3 opacity-70" />{data.email}</a>}
                       {data.phone && <div className="flex items-center"><Phone className="w-4 h-4 mr-3 opacity-70" />{data.phone}</div>}
                       {data.location && <div className="flex items-center"><MapPin className="w-4 h-4 mr-3 opacity-70" />{data.location}</div>}
-                      {data.linkedin && <div className="flex items-center"><Linkedin className="w-4 h-4 mr-3 opacity-70" />{data.linkedin}</div>}
+                      {data.linkedin && <a href={formatUrl(data.linkedin)} target="_blank" rel="noreferrer" className="flex items-center hover:text-white transition-colors"><Linkedin className="w-4 h-4 mr-3 opacity-70" />LinkedIn</a>}
+                      {data.github && <a href={formatUrl(data.github)} target="_blank" rel="noreferrer" className="flex items-center hover:text-white transition-colors"><Github className="w-4 h-4 mr-3 opacity-70" />GitHub</a>}
                     </div>
                   </section>
 
@@ -637,9 +682,11 @@ function App() {
               <div>
                 <h3 className="text-4xl font-black mb-8 underline decoration-4 underline-offset-8">Contact</h3>
                 <div className="text-xl font-medium space-y-2">
-                  <p>{data.email}</p>
+                  <p><a href={`mailto:${data.email}`} className="hover:underline">{data.email}</a></p>
                   <p>{data.phone}</p>
                   <p>{data.location}</p>
+                  {data.linkedin && <p><a href={formatUrl(data.linkedin)} target="_blank" rel="noreferrer" className="hover:underline">LINKEDIN</a></p>}
+                  {data.github && <p><a href={formatUrl(data.github)} target="_blank" rel="noreferrer" className="hover:underline">GITHUB</a></p>}
                 </div>
               </div>
             </div>
@@ -668,8 +715,12 @@ function App() {
                   <p className="text-gray-600">{data.title}</p>
                 </div>
                 <div className="text-right text-xs text-gray-500">
-                  <p>{data.email} | {data.phone}</p>
+                  <p><a href={`mailto:${data.email}`} className="hover:text-gray-900">{data.email}</a> | {data.phone}</p>
                   <p>{data.location}</p>
+                  <div className="flex justify-end gap-2 mt-1">
+                    {data.linkedin && <a href={formatUrl(data.linkedin)} target="_blank" rel="noreferrer" className="hover:text-gray-900">LinkedIn</a>}
+                    {data.github && <a href={formatUrl(data.github)} target="_blank" rel="noreferrer" className="hover:text-gray-900">GitHub</a>}
+                  </div>
                 </div>
               </header>
               <div className="grid grid-cols-3 gap-6">
@@ -738,9 +789,14 @@ function App() {
                   <div className="bg-[#e6ebe6] p-6 rounded-2xl">
                     <h3 className="text-[#5c7a5c] font-bold mb-4 font-serif">Contact</h3>
                     <div className="space-y-2 text-sm">
-                      <p>{data.email}</p>
+                      <p><a href={`mailto:${data.email}`} className="hover:text-[#2c3e2c]">{data.email}</a></p>
                       <p>{data.phone}</p>
                       <p>{data.location}</p>
+                      {data.linkedin && <p><a href={formatUrl(data.linkedin)} target="_blank" rel="noreferrer" className="hover:text-[#2c3e2c]">LinkedIn</a></p>}
+                      {data.github && <p><a href={formatUrl(data.github)} target="_blank" rel="noreferrer" className="hover:text-[#2c3e2c]">GitHub</a></p>}
+                      {(data.customLinks || []).map(link => (
+                        <p key={link.id}><a href={formatUrl(link.url)} target="_blank" rel="noreferrer" className="hover:text-[#2c3e2c]">{link.label}</a></p>
+                      ))}
                     </div>
                   </div>
                   <div className="bg-[#f4f1ea] p-6 rounded-2xl">
@@ -787,6 +843,13 @@ function App() {
                   {data.fullName.toUpperCase()}
                 </h1>
                 <p className="text-xl text-[#f0f]">&gt; {data.title}</p>
+                <div className="flex gap-4 mt-4 text-sm font-bold text-[#0ff]">
+                   {data.linkedin && <a href={formatUrl(data.linkedin)} target="_blank" rel="noreferrer" className="hover:text-[#f0f]">[ LINKEDIN ]</a>}
+                   {data.github && <a href={formatUrl(data.github)} target="_blank" rel="noreferrer" className="hover:text-[#f0f]">[ GITHUB ]</a>}
+                   {(data.customLinks || []).map(link => (
+                     <a key={link.id} href={formatUrl(link.url)} target="_blank" rel="noreferrer" className="hover:text-[#f0f]">[ {link.label.toUpperCase()} ]</a>
+                   ))}
+                </div>
               </header>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -835,6 +898,10 @@ function App() {
                   <span>{data.location}</span>
                   <span>{data.title}</span>
                   <span>{data.phone}</span>
+                  {data.linkedin && <span><a href={formatUrl(data.linkedin)} target="_blank" rel="noreferrer" className="hover:underline">LinkedIn</a></span>}
+                  {(data.customLinks || []).map(link => (
+                    <span key={link.id}><a href={formatUrl(link.url)} target="_blank" rel="noreferrer" className="hover:underline">{link.label}</a></span>
+                  ))}
                 </div>
               </header>
               
@@ -892,8 +959,13 @@ function App() {
                 <p><span className="text-[#e0af68]">"name"</span>: <span className="text-[#9ece6a]">"{data.fullName}"</span>,</p>
                 <p><span className="text-[#e0af68]">"title"</span>: <span className="text-[#9ece6a]">"{data.title}"</span>,</p>
                 <p><span className="text-[#e0af68]">"contact"</span>: {"{"}</p>
-                <p className="pl-4"><span className="text-[#e0af68]">"email"</span>: <span className="text-[#9ece6a]">"{data.email}"</span>,</p>
-                <p className="pl-4"><span className="text-[#e0af68]">"phone"</span>: <span className="text-[#9ece6a]">"{data.phone}"</span></p>
+                <p className="pl-4"><span className="text-[#e0af68]">"email"</span>: <span className="text-[#9ece6a]">"<a href={`mailto:${data.email}`} className="hover:underline">{data.email}</a>"</span>,</p>
+                <p className="pl-4"><span className="text-[#e0af68]">"phone"</span>: <span className="text-[#9ece6a]">"{data.phone}"</span>,</p>
+                {data.linkedin && <p className="pl-4"><span className="text-[#e0af68]">"linkedin"</span>: <span className="text-[#9ece6a]">"<a href={formatUrl(data.linkedin)} target="_blank" rel="noreferrer" className="hover:underline">link</a>"</span>,</p>}
+                {data.github && <p className="pl-4"><span className="text-[#e0af68]">"github"</span>: <span className="text-[#9ece6a]">"<a href={formatUrl(data.github)} target="_blank" rel="noreferrer" className="hover:underline">link</a>"</span></p>}
+                {(data.customLinks || []).map(link => (
+                  <p key={link.id} className="pl-4"><span className="text-[#e0af68]">"{link.label.toLowerCase()}"</span>: <span className="text-[#9ece6a]">"<a href={formatUrl(link.url)} target="_blank" rel="noreferrer" className="hover:underline">link</a>"</span></p>
+                ))}
                 <p>{"},"}</p>
                 <p><span className="text-[#e0af68]">"bio"</span>: <span className="text-[#9ece6a]">"{data.bio}"</span>,</p>
                 <p><span className="text-[#e0af68]">"skills"</span>: [</p>
@@ -936,9 +1008,14 @@ function App() {
               <div className="col-span-4 space-y-12">
                 <section>
                   <h3 className="text-sm font-bold uppercase tracking-widest mb-4 text-[#ff0000]">Contact</h3>
-                  <p className="font-bold text-lg">{data.email}</p>
+                  <p className="font-bold text-lg"><a href={`mailto:${data.email}`} className="hover:text-[#ff0000]">{data.email}</a></p>
                   <p className="font-bold text-lg">{data.phone}</p>
                   <p className="font-bold text-lg">{data.location}</p>
+                  {data.linkedin && <p className="font-bold text-lg"><a href={formatUrl(data.linkedin)} target="_blank" rel="noreferrer" className="hover:text-[#ff0000]">LinkedIn</a></p>}
+                  {data.github && <p className="font-bold text-lg"><a href={formatUrl(data.github)} target="_blank" rel="noreferrer" className="hover:text-[#ff0000]">GitHub</a></p>}
+                  {(data.customLinks || []).map(link => (
+                    <p key={link.id} className="font-bold text-lg"><a href={formatUrl(link.url)} target="_blank" rel="noreferrer" className="hover:text-[#ff0000]">{link.label}</a></p>
+                  ))}
                 </section>
                 <section>
                   <h3 className="text-sm font-bold uppercase tracking-widest mb-4 text-[#ff0000]">Skills</h3>
@@ -984,6 +1061,13 @@ function App() {
               <div className="p-12 space-y-10">
                 <section className="text-center max-w-2xl mx-auto">
                   <p className="text-lg italic text-[#6d4c41]">{data.bio}</p>
+                  <div className="flex justify-center gap-4 mt-4 text-sm font-bold text-[#5d4037]">
+                     {data.linkedin && <a href={formatUrl(data.linkedin)} target="_blank" rel="noreferrer" className="hover:text-[#ff6f00]">LinkedIn</a>}
+                     {data.github && <a href={formatUrl(data.github)} target="_blank" rel="noreferrer" className="hover:text-[#ff6f00]">GitHub</a>}
+                     {(data.customLinks || []).map(link => (
+                       <a key={link.id} href={formatUrl(link.url)} target="_blank" rel="noreferrer" className="hover:text-[#ff6f00]">{link.label}</a>
+                     ))}
+                  </div>
                 </section>
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
@@ -1046,9 +1130,14 @@ function App() {
                     <section>
                       <h3 className="text-sm font-bold uppercase tracking-wider text-[#00bcd4] mb-3">Contact</h3>
                       <div className="space-y-2 text-sm">
-                        <p>{data.email}</p>
+                        <p><a href={`mailto:${data.email}`} className="hover:text-[#00bcd4]">{data.email}</a></p>
                         <p>{data.phone}</p>
                         <p>{data.location}</p>
+                        {data.linkedin && <p><a href={formatUrl(data.linkedin)} target="_blank" rel="noreferrer" className="hover:text-[#00bcd4]">LinkedIn</a></p>}
+                        {data.github && <p><a href={formatUrl(data.github)} target="_blank" rel="noreferrer" className="hover:text-[#00bcd4]">GitHub</a></p>}
+                        {(data.customLinks || []).map(link => (
+                          <p key={link.id}><a href={formatUrl(link.url)} target="_blank" rel="noreferrer" className="hover:text-[#00bcd4]">{link.label}</a></p>
+                        ))}
                       </div>
                     </section>
                     <section>
@@ -1110,6 +1199,13 @@ function App() {
                 <div className="inline-block border-2 border-black px-4 py-1 font-bold text-xl uppercase bg-black text-white">
                   {data.title}
                 </div>
+                <div className="flex justify-center gap-4 mt-4 text-sm font-bold">
+                   {data.linkedin && <a href={formatUrl(data.linkedin)} target="_blank" rel="noreferrer" className="hover:underline border-b-2 border-black">LINKEDIN</a>}
+                   {data.github && <a href={formatUrl(data.github)} target="_blank" rel="noreferrer" className="hover:underline border-b-2 border-black">GITHUB</a>}
+                   {(data.customLinks || []).map(link => (
+                     <a key={link.id} href={formatUrl(link.url)} target="_blank" rel="noreferrer" className="hover:underline border-b-2 border-black">{link.label.toUpperCase()}</a>
+                   ))}
+                </div>
               </header>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
@@ -1152,10 +1248,11 @@ function App() {
       case THEMES.MINIMALIST:
       default:
         return (
-          <div className="bg-white text-black min-h-full p-[1.2cm] font-serif max-w-[210mm] mx-auto leading-tight text-sm">
+          <div className="bg-white text-black min-h-[297mm] w-[210mm] mx-auto p-[1.2cm] font-serif shadow-2xl my-8 leading-tight text-sm print:shadow-none print:my-0 print:w-full print:min-h-full">
             {/* Header */}
             <div className="text-center mb-2">
               <h1 className="text-3xl font-bold mb-1 uppercase tracking-wide">{data.fullName}</h1>
+              <p className="text-lg mb-1">{data.title}</p>
               <div className="flex justify-center items-center gap-2 text-sm mb-1">
                 {data.location && <span>{data.location}</span>}
                 {data.location && data.phone && <span>|</span>}
@@ -1166,19 +1263,25 @@ function App() {
               <div className="flex justify-center items-center gap-2 text-sm">
                 {data.linkedin && (
                   <>
-                    <a href={`https://${data.linkedin}`} target="_blank" rel="noreferrer" className="hover:underline">LinkedIn</a>
+                    <a href={formatUrl(data.linkedin)} target="_blank" rel="noreferrer" className="hover:underline">LinkedIn</a>
                     {(data.github || data.website) && <span>|</span>}
                   </>
                 )}
                 {data.github && (
                   <>
-                    <a href={`https://${data.github}`} target="_blank" rel="noreferrer" className="hover:underline">GitHub</a>
+                    <a href={formatUrl(data.github)} target="_blank" rel="noreferrer" className="hover:underline">GitHub</a>
                     {data.website && <span>|</span>}
                   </>
                 )}
                 {data.website && (
-                  <a href={`https://${data.website}`} target="_blank" rel="noreferrer" className="hover:underline">Portfolio</a>
+                  <a href={formatUrl(data.website)} target="_blank" rel="noreferrer" className="hover:underline">Portfolio</a>
                 )}
+                {(data.customLinks || []).map(link => (
+                  <React.Fragment key={link.id}>
+                    <span>|</span>
+                    <a href={formatUrl(link.url)} target="_blank" rel="noreferrer" className="hover:underline">{link.label}</a>
+                  </React.Fragment>
+                ))}
               </div>
             </div>
 
@@ -1278,14 +1381,7 @@ function App() {
             <InputGroup label="Professional Bio">
               <div className="relative">
                 <textarea className="w-full p-2 border rounded-md h-32" value={data.bio} onChange={e => updateField('bio', e.target.value)} placeholder="Tell your story..." />
-                <button 
-                  onClick={handleEnhanceBio}
-                  disabled={isEnhancing}
-                  className="absolute bottom-2 right-2 text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded-md flex items-center hover:bg-purple-200 transition-colors"
-                >
-                  {isEnhancing ? <Loader2 className="w-3 h-3 animate-spin mr-1"/> : <Sparkles className="w-3 h-3 mr-1"/>}
-                  Enhance Bio
-                </button>
+
               </div>
             </InputGroup>
             <div className="grid grid-cols-2 gap-4">
@@ -1302,11 +1398,35 @@ function App() {
             <SectionHeader title="Social Links" icon={Share2} />
             <div className="grid grid-cols-2 gap-4">
               <InputGroup label="LinkedIn">
-                <input type="text" className="w-full p-2 border rounded-md" value={data.linkedin} onChange={e => updateField('linkedin', e.target.value)} />
+                <input type="text" className="w-full p-2 border rounded-md" value={data.linkedin} onChange={e => updateField('linkedin', e.target.value)} placeholder="linkedin.com/in/username" />
+                <p className="text-xs text-gray-500 mt-1">Paste link without https://</p>
               </InputGroup>
               <InputGroup label="GitHub">
-                <input type="text" className="w-full p-2 border rounded-md" value={data.github} onChange={e => updateField('github', e.target.value)} />
+                <input type="text" className="w-full p-2 border rounded-md" value={data.github} onChange={e => updateField('github', e.target.value)} placeholder="github.com/username" />
+                <p className="text-xs text-gray-500 mt-1">Paste link without https://</p>
               </InputGroup>
+            </div>
+            
+            <SectionHeader title="Custom Links" icon={Globe} />
+            <div className="space-y-4">
+              {(data.customLinks || []).map(link => (
+                <div key={link.id} className="bg-gray-50 p-4 rounded-lg border border-gray-200 relative group">
+                  <button onClick={() => removeArrayItem('customLinks', link.id)} className="absolute top-2 right-2 text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                  <div className="grid grid-cols-2 gap-4">
+                    <InputGroup label="Label">
+                      <input type="text" className="w-full p-2 border rounded bg-white" value={link.label} onChange={e => updateArrayItem('customLinks', link.id, 'label', e.target.value)} placeholder="e.g. Portfolio" />
+                    </InputGroup>
+                    <InputGroup label="URL">
+                      <input type="text" className="w-full p-2 border rounded bg-white" value={link.url} onChange={e => updateArrayItem('customLinks', link.id, 'url', e.target.value)} placeholder="example.com" />
+                    </InputGroup>
+                  </div>
+                </div>
+              ))}
+              <Button variant="secondary" className="w-full" onClick={() => addArrayItem('customLinks', { label: '', url: '' })} icon={Plus}>
+                Add Custom Link
+              </Button>
             </div>
           </div>
         );
@@ -1421,9 +1541,7 @@ function App() {
               <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold text-xl">Q</div>
               <h1 className="text-xl font-bold text-gray-900 tracking-tight">QuickResume</h1>
             </div>
-            <Button variant="magic" onClick={handleAIEnhance} loading={isEnhancing} icon={Sparkles} className="text-xs px-3 py-1.5">
-              AI Enhance
-            </Button>
+
           </div>
           
           <div className="flex space-x-1 bg-gray-100 p-1 rounded-lg overflow-x-auto no-scrollbar">
