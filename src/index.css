@@ -5,5 +5,7 @@
 @layer base {
   body {
     @apply antialiased text-gray-900 bg-gray-50;
+    min-width: 1024px;
+    overflow-x: auto;
   }
 }

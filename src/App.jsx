@@ -4,7 +4,7 @@ import {
   FileDown, Loader2, Plus, Trash2, ChevronRight, Globe, Mail, Phone, MapPin, Linkedin, Github, Share2
 } from 'lucide-react';
 import html2canvas from 'html2canvas';
-import jsPDF from 'jspdf';
+import { jsPDF } from 'jspdf';
 
 
 // --- Constants & Mock Data ---
@@ -158,10 +158,10 @@ function App() {
 
   const handleDownloadPDF = async () => {
     if (!previewRef.current) return;
-    
+
     // Scroll to top to prevent capture issues
     window.scrollTo(0, 0);
-    
+
     // Save original styles
     const originalTransform = previewRef.current.style.transform;
     const originalTransition = previewRef.current.style.transition;
@@ -170,45 +170,67 @@ function App() {
     // Create style overrides for PDF capture (fix gradient text, skills layout, etc.)
     const style = document.createElement('style');
     style.innerHTML = `
-      .pdf-capture .bg-clip-text {
-        background: none !important;
-        -webkit-background-clip: border-box !important;
-        background-clip: border-box !important;
-        color: #a855f7 !important;
-        -webkit-text-fill-color: #a855f7 !important;
-      }
-      
-      /* Fix Creative Theme Skills */
-      .pdf-capture .creative-skills {
-        display: block !important;
-      }
-      .pdf-capture .creative-skills > span {
-        display: inline-block !important;
-        margin-right: 0.5rem !important;
-        margin-bottom: 0.5rem !important;
-        white-space: nowrap !important;
-        vertical-align: middle !important;
-      }
-    `;
+        .pdf-capture .bg-clip-text {
+          background: none !important;
+          -webkit-background-clip: border-box !important;
+          background-clip: border-box !important;
+          color: #a855f7 !important;
+          -webkit-text-fill-color: #a855f7 !important;
+        }
+
+        /* Global PDF Alignment Fixes */
+        .pdf-capture svg {
+          display: inline-block !important;
+          vertical-align: middle !important;
+          transform: none !important;
+          margin: 0 !important; /* Reset margin */
+          position: relative !important;
+          top: -1px !important; /* Slight visual correction */
+        }
+        
+        .pdf-capture a, 
+        .pdf-capture span {
+          vertical-align: middle !important;
+        }
+
+        /* Fix Skills/Badges in all themes */
+        .pdf-capture .pdf-skill-item {
+          display: inline-block !important; /* Switch to inline-block for stability */
+          white-space: nowrap !important;
+          vertical-align: middle !important;
+          line-height: 1.4 !important;
+          height: auto !important;
+          padding: 4px 8px !important;
+          border-radius: 4px !important;
+        }
+
+        /* Specific fix for Creative Theme Skills to ensure solid background */
+        .pdf-capture .creative-skills > span {
+          background-color: #3b0764 !important;
+          border: 1px solid #a855f7 !important;
+          color: #d8b4fe !important;
+        }
+      `;
     document.head.appendChild(style);
     previewRef.current.classList.add('pdf-capture');
 
     try {
-      // Force consistent width for better layout
+      // 1. Reset transform to ensure accurate coordinate calculation and high-quality capture
+      window.scrollTo(0, 0);
       previewRef.current.style.transform = 'scale(1)';
       previewRef.current.style.transition = 'none';
-      previewRef.current.style.width = '1024px';
-
-      // Wait for layout to settle
+      // Don't force width to 1024px, let it be the natural A4 width (210mm) defined in CSS
+      
+      // Wait a moment for layout to settle
       await new Promise(resolve => setTimeout(resolve, 100));
 
       // Get preview dimensions
       const previewRect = previewRef.current.getBoundingClientRect();
-      
+
       // Calculate link positions
       const links = [];
       const linkElements = previewRef.current.querySelectorAll('a');
-      
+
       linkElements.forEach(link => {
         const rect = link.getBoundingClientRect();
         links.push({
@@ -220,19 +242,17 @@ function App() {
         });
       });
 
-      // Capture preview
+      // 2. Capture the preview as an image
       const canvas = await html2canvas(previewRef.current, {
-        scale: 2,
+        scale: 2, // Reduced scale for better stability
         useCORS: true,
         logging: false,
-        scrollY: 0,
-        scrollX: 0,
-        allowTaint: true
+        backgroundColor: '#ffffff'
       });
-      
+
       const imgData = canvas.toDataURL('image/png');
-      
-      // Create A4 PDF
+
+      // 3. Create A4 PDF
       const pdf = new jsPDF({
         orientation: 'portrait',
         unit: 'mm',
@@ -242,16 +262,29 @@ function App() {
       const A4_WIDTH = 210;
       const A4_HEIGHT = 297;
 
-      // Add image scaled to fill A4 page
-      pdf.addImage(imgData, 'PNG', 0, 0, A4_WIDTH, A4_HEIGHT);
+      // Calculate dimensions to fit A4 while maintaining aspect ratio
+      const imgWidth = canvas.width;
+      const imgHeight = canvas.height;
+      const ratio = Math.min(A4_WIDTH / imgWidth, A4_HEIGHT / imgHeight);
+      
+      const pdfWidth = imgWidth * ratio;
+      const pdfHeight = imgHeight * ratio;
+      
+      // Center the image on the page
+      const x = (A4_WIDTH - pdfWidth) / 2;
+      const y = 0;
 
-      // Add clickable links scaled to A4
-      const scaleX = A4_WIDTH / previewRect.width;
-      const scaleY = A4_HEIGHT / previewRect.height;
+      // Add image scaled to fit A4 page
+      pdf.addImage(imgData, 'PNG', x, y, pdfWidth, pdfHeight);
+
+      // Add clickable links scaled to PDF coordinates
+      const scaleX = pdfWidth / previewRect.width;
+      const scaleY = pdfHeight / previewRect.height;
+      
       links.forEach(link => {
         pdf.link(
-          link.x * scaleX,
-          link.y * scaleY,
+          x + (link.x * scaleX),
+          y + (link.y * scaleY),
           link.w * scaleX,
           link.h * scaleY,
           { url: link.url }
@@ -261,12 +294,11 @@ function App() {
       pdf.save(`${data.fullName.replace(/\s+/g, '_')}_Portfolio.pdf`);
     } catch (err) {
       console.error("PDF generation failed", err);
-      alert("Failed to generate PDF. Please try again.");
+      alert(`Failed to generate PDF: ${err.message}`);
     } finally {
       // Restore original styles and cleanup
       previewRef.current.style.transform = originalTransform;
       previewRef.current.style.transition = originalTransition;
-      previewRef.current.style.width = originalWidth;
       previewRef.current.classList.remove('pdf-capture');
       if (style.parentNode) {
         document.head.removeChild(style);
@@ -350,8 +382,8 @@ function App() {
               </div>
             </header>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-12 creative-grid">
-              <div className="md:col-span-2 space-y-12 creative-main">
+            <div className="grid grid-cols-3 gap-12 creative-grid">
+              <div className="col-span-2 space-y-12 creative-main">
                 <section>
                   <h3 className="text-2xl font-bold mb-4 text-purple-400">About Me</h3>
                   <p className="text-gray-300 leading-relaxed">{data.bio}</p>
@@ -393,11 +425,11 @@ function App() {
                 <section>
                   <h3 className="text-xl font-bold mb-4 text-purple-400">Skills</h3>
                   <div className="flex flex-wrap gap-2 creative-skills">
-                    {data.skills.map((skill, i) => (
-                      <span key={i} className="px-3 py-1 bg-purple-900/30 border border-purple-500/30 text-purple-300 rounded-full text-sm">
-                        {skill}
-                      </span>
-                    ))}
+                      {data.skills.map((skill, i) => (
+                        <span key={i} className="px-3 py-1 bg-purple-900/30 border border-purple-500/30 text-purple-300 rounded-full text-sm pdf-skill-item">
+                          {skill}
+                        </span>
+                      ))}
                   </div>
                 </section>
               </div>
@@ -500,7 +532,7 @@ function App() {
             <div className="max-w-5xl mx-auto border border-slate-700 bg-slate-800/50 rounded-lg overflow-hidden shadow-2xl">
               {/* Header */}
               <header className="p-8 border-b border-slate-700 bg-slate-800">
-                <h1 className="text-4xl md:text-5xl font-bold text-teal-400 mb-2 tracking-tighter">
+                <h1 className="text-5xl font-bold text-teal-400 mb-2 tracking-tighter">
                   {`<${data.fullName} />`}
                 </h1>
                 <p className="text-xl text-slate-400 mb-6 font-light">{data.title}</p>
@@ -513,7 +545,7 @@ function App() {
                 </div>
               </header>
 
-              <div className="grid grid-cols-1 lg:grid-cols-3">
+              <div className="grid grid-cols-3">
                 {/* Sidebar (Skills & Bio) */}
                 <aside className="p-8 border-r border-slate-700 space-y-8 bg-slate-800/30">
                   <section>
@@ -525,16 +557,16 @@ function App() {
                     <h3 className="text-teal-400 font-bold uppercase tracking-widest mb-4 text-sm">Tech Stack</h3>
                     <div className="flex flex-wrap gap-2">
                       {data.skills.map((skill, i) => (
-                        <span key={i} className="px-2 py-1 bg-slate-700 text-teal-300 text-xs rounded border border-slate-600">
-                          {skill}
-                        </span>
-                      ))}
+                      <span key={i} className="px-2 py-1 bg-slate-100 text-slate-600 text-xs font-bold uppercase tracking-wider pdf-skill-item">
+                        {skill}
+                      </span>
+                    ))}
                     </div>
                   </section>
                 </aside>
 
                 {/* Main Content */}
-                <main className="lg:col-span-2 p-8 space-y-10">
+                <main className="col-span-2 p-8 space-y-10">
                   <section>
                     <div className="flex items-center mb-6">
                       <h3 className="text-2xl font-bold text-slate-100 mr-4">Experience</h3>
@@ -585,11 +617,11 @@ function App() {
       case THEMES.ELEGANT:
         return (
           <div className="bg-stone-100 min-h-full p-8 font-sans text-stone-800">
-            <div className="max-w-5xl mx-auto bg-white shadow-xl min-h-[1000px] flex flex-col md:flex-row">
+            <div className="max-w-5xl mx-auto bg-white shadow-xl min-h-[1000px] flex flex-row">
               {/* Sidebar */}
-              <aside className="w-full md:w-1/3 bg-stone-800 text-stone-300 p-8 flex flex-col">
-                <div className="mb-12 text-center md:text-left">
-                  <div className="w-32 h-32 mx-auto md:mx-0 bg-stone-700 rounded-full mb-6 flex items-center justify-center text-4xl font-serif text-stone-400 border-4 border-stone-600">
+              <aside className="w-1/3 bg-stone-800 text-stone-300 p-8 flex flex-col">
+                <div className="mb-12 text-left">
+                  <div className="w-32 h-32 mx-0 bg-stone-700 rounded-full mb-6 flex items-center justify-center text-4xl font-serif text-stone-400 border-4 border-stone-600">
                     {data.fullName.charAt(0)}
                   </div>
                   <h1 className="text-3xl font-serif text-white mb-2 leading-tight">{data.fullName}</h1>
@@ -612,7 +644,7 @@ function App() {
                     <h3 className="text-white font-serif text-lg border-b border-stone-600 pb-2 mb-4">Skills</h3>
                     <div className="flex flex-wrap gap-2">
                       {data.skills.map((skill, i) => (
-                        <span key={i} className="px-2 py-1 bg-stone-700 text-xs rounded text-stone-300">
+                        <span key={i} className="px-2 py-1 bg-stone-700 text-xs rounded text-stone-300 pdf-skill-item">
                           {skill}
                         </span>
                       ))}
@@ -622,7 +654,7 @@ function App() {
               </aside>
 
               {/* Main Content */}
-              <main className="w-full md:w-2/3 p-12">
+              <main className="w-2/3 p-12">
                 <section className="mb-12">
                   <h2 className="text-2xl font-serif text-stone-800 mb-6 pb-2 border-b-2 border-stone-200">Profile</h2>
                   <p className="text-stone-600 leading-relaxed text-lg font-light">{data.bio}</p>
@@ -671,10 +703,10 @@ function App() {
         return (
           <div className="bg-black text-white min-h-full p-8 font-sans uppercase tracking-tighter">
             <header className="mb-12 border-b-8 border-white pb-8">
-              <h1 className="text-7xl md:text-9xl font-black mb-4 leading-none">{data.fullName}</h1>
-              <p className="text-2xl md:text-4xl font-bold text-gray-400">{data.title}</p>
+              <h1 className="text-9xl font-black mb-4 leading-none">{data.fullName}</h1>
+              <p className="text-4xl font-bold text-gray-400">{data.title}</p>
             </header>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-16">
+            <div className="grid grid-cols-2 gap-16">
               <div>
                 <h3 className="text-4xl font-black mb-8 underline decoration-4 underline-offset-8">About</h3>
                 <p className="text-xl font-medium leading-relaxed">{data.bio}</p>
@@ -760,7 +792,9 @@ function App() {
                     <h3 className="font-bold border-b border-gray-200 mb-2">Skills</h3>
                     <div className="flex flex-wrap gap-1">
                       {data.skills.map((skill, i) => (
-                        <span key={i} className="bg-gray-100 px-1.5 py-0.5 rounded text-xs border border-gray-200">{skill}</span>
+                        <span key={i} className="bg-gray-100 px-1.5 py-0.5 rounded text-xs border border-gray-200 pdf-skill-item">
+                          {skill}
+                        </span>
                       ))}
                     </div>
                   </section>
@@ -784,8 +818,8 @@ function App() {
                 <p className="text-[#8c9e8c] tracking-wide">{data.title}</p>
               </header>
               
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-12">
-                <div className="md:col-span-1 space-y-8">
+              <div className="grid grid-cols-3 gap-12">
+                <div className="col-span-1 space-y-8">
                   <div className="bg-[#e6ebe6] p-6 rounded-2xl">
                     <h3 className="text-[#5c7a5c] font-bold mb-4 font-serif">Contact</h3>
                     <div className="space-y-2 text-sm">
@@ -803,7 +837,9 @@ function App() {
                     <h3 className="text-[#8c7e6c] font-bold mb-4 font-serif">Skills</h3>
                     <div className="flex flex-wrap gap-2">
                       {data.skills.map((skill, i) => (
-                        <span key={i} className="px-3 py-1 bg-white rounded-full text-xs text-[#5c5c5c] shadow-sm">{skill}</span>
+                        <span key={i} className="px-3 py-1 bg-white rounded-full text-xs text-[#5c5c5c] shadow-sm pdf-skill-item">
+                          {skill}
+                        </span>
                       ))}
                     </div>
                   </div>
@@ -861,7 +897,7 @@ function App() {
                   <h3 className="text-2xl text-[#f0f] mb-4 border-b border-[#f0f] inline-block">SYSTEM.SKILLS</h3>
                   <div className="flex flex-wrap gap-2">
                     {data.skills.map((skill, i) => (
-                      <span key={i} className="px-2 py-1 border border-[#0ff] text-[#0ff] text-xs hover:bg-[#0ff] hover:text-black transition-colors cursor-default">
+                      <span key={i} className="px-2 py-1 border border-[#0ff] text-[#0ff] text-xs hover:bg-[#0ff] hover:text-black transition-colors cursor-default pdf-skill-item">
                         [{skill}]
                       </span>
                     ))}
@@ -1020,7 +1056,7 @@ function App() {
                 <section>
                   <h3 className="text-sm font-bold uppercase tracking-widest mb-4 text-[#ff0000]">Skills</h3>
                   <ul className="font-bold text-lg space-y-1">
-                    {data.skills.map((skill, i) => <li key={i}>{skill}</li>)}
+                    {data.skills.map((skill, i) => <li key={i} className="pdf-skill-item">{skill}</li>)}
                   </ul>
                 </section>
               </div>
@@ -1093,7 +1129,9 @@ function App() {
                       </h3>
                       <div className="flex flex-wrap gap-2">
                         {data.skills.map((skill, i) => (
-                          <span key={i} className="px-3 py-1 bg-[#ffcc80] text-[#4e342e] rounded-lg text-sm font-medium">{skill}</span>
+                          <span key={i} className="px-3 py-1 bg-[#ffcc80] text-[#4e342e] rounded-lg text-sm font-medium pdf-skill-item">
+                            {skill}
+                          </span>
                         ))}
                       </div>
                     </section>
@@ -1144,7 +1182,9 @@ function App() {
                       <h3 className="text-sm font-bold uppercase tracking-wider text-[#00bcd4] mb-3">Skills</h3>
                       <div className="flex flex-wrap gap-2">
                         {data.skills.map((skill, i) => (
-                          <span key={i} className="px-2 py-1 bg-[#e0f7fa] text-[#006064] text-xs rounded border border-[#b2ebf2]">{skill}</span>
+                          <span key={i} className="px-2 py-1 bg-[#e0f7fa] text-[#006064] text-xs rounded border border-[#b2ebf2] pdf-skill-item">
+                            {skill}
+                          </span>
                         ))}
                       </div>
                     </section>
@@ -1218,7 +1258,7 @@ function App() {
                     <h3 className="text-2xl font-bold uppercase mb-4 decoration-4 underline decoration-black">Skills</h3>
                     <div className="flex flex-wrap gap-3">
                       {data.skills.map((skill, i) => (
-                        <span key={i} className="border-2 border-black px-3 py-1 font-bold text-sm hover:bg-black hover:text-white transition-colors">
+                        <span key={i} className="border-2 border-black px-3 py-1 font-bold text-sm hover:bg-black hover:text-white transition-colors pdf-skill-item">
                           {skill}
                         </span>
                       ))}
